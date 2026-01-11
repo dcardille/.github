@@ -1,0 +1,146 @@
+# .github/workflows/dotnet-release.yml
+# Reusable workflow for building and releasing .NET projects
+name: Build and Release .NET Project
+
+on:
+  workflow_call:
+    inputs:
+      project-path:
+        description: 'Path to .csproj file (e.g., src/MyApp/MyApp.csproj)'
+        required: false
+        type: string
+        default: '**/*.csproj'
+      dotnet-version:
+        description: '.NET SDK version'
+        required: false
+        type: string
+        default: '10.0.x'
+      runtime:
+        description: 'Runtime identifier (win-x64, linux-x64, etc.)'
+        required: false
+        type: string
+        default: 'win-x64'
+      self-contained:
+        description: 'Build as self-contained'
+        required: false
+        type: boolean
+        default: false
+      create-release:
+        description: 'Create GitHub release'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for MinVer
+        fetch-tags: true
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+    
+    - name: Get project file
+      id: project
+      shell: pwsh
+      run: |
+        if ("${{ inputs.project-path }}" -like "**/*") {
+          $proj = Get-ChildItem -Recurse -Filter "*.csproj" | Select-Object -First 1 -ExpandProperty FullName
+        } else {
+          $proj = "${{ inputs.project-path }}"
+        }
+        $name = [System.IO.Path]::GetFileNameWithoutExtension($proj)
+        echo "path=$proj" >> $env:GITHUB_OUTPUT
+        echo "name=$name" >> $env:GITHUB_OUTPUT
+        echo "Found project: $name at $proj"
+    
+    - name: Restore dependencies
+      run: dotnet restore "${{ steps.project.outputs.path }}"
+    
+    - name: Build and publish
+      shell: pwsh
+      run: |
+        $selfContained = if ("${{ inputs.self-contained }}" -eq "true") { "true" } else { "false" }
+        
+        dotnet publish "${{ steps.project.outputs.path }}" `
+          -c Release `
+          -r "${{ inputs.runtime }}" `
+          --self-contained $selfContained `
+          -p:PublishSingleFile=true `
+          -p:PublishReadyToRun=true `
+          -p:IncludeNativeLibrariesForSelfExtract=$selfContained `
+          -p:EnableCompressionInSingleFile=$selfContained `
+          -p:DebugType=embedded `
+          -o publish/
+    
+    - name: Get version from MinVer
+      id: version
+      shell: pwsh
+      run: |
+        $exeName = "${{ steps.project.outputs.name }}"
+        if ("${{ inputs.runtime }}" -like "win-*") { 
+          $exeName += ".exe" 
+        }
+        $exePath = "publish/$exeName"
+        
+        $version = (Get-Command $exePath).FileVersionInfo.FileVersion
+        $productVersion = (Get-Command $exePath).FileVersionInfo.ProductVersion
+        
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "product-version=$productVersion" >> $env:GITHUB_OUTPUT
+        
+        Write-Host "File Version: $version"
+        Write-Host "Product Version: $productVersion"
+    
+    - name: Create release archive
+      shell: pwsh
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+        $archiveName = "${{ steps.project.outputs.name }}-v$version-${{ inputs.runtime }}.zip"
+        
+        Compress-Archive -Path publish/* -DestinationPath $archiveName
+        
+        echo "archive-name=$archiveName" >> $env:GITHUB_OUTPUT
+        
+        # Get file size
+        $size = (Get-Item $archiveName).Length / 1MB
+        Write-Host "Archive created: $archiveName ($([math]::Round($size, 2)) MB)"
+      id: archive
+    
+    - name: Create GitHub Release
+      if: inputs.create-release && startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ steps.archive.outputs.archive-name }}
+        body: |
+          ## ${{ steps.project.outputs.name }} v${{ steps.version.outputs.version }}
+          
+          **Runtime:** ${{ inputs.runtime }}
+          **Build Configuration:** Release
+          **Self-Contained:** ${{ inputs.self-contained }}
+          
+          ### Installation
+          1. Download the zip file
+          2. Extract to your preferred location
+          3. Run `${{ steps.project.outputs.name }}.exe`
+          
+          **Product Version:** ${{ steps.version.outputs.product-version }}
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.project.outputs.name }}-${{ steps.version.outputs.version }}-${{ inputs.runtime }}
+        path: publish/
+        retention-days: 30
+  
