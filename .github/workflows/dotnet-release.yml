@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      ready-to-run:
+        description: 'Enable ReadyToRun compilation'
+        required: false
+        type: boolean
+        default: false
       create-release:
         description: 'Create GitHub release'
         required: false
@@ -63,7 +68,7 @@ jobs:
     
     - name: Restore dependencies
       run: dotnet restore "${{ steps.project.outputs.path }}"
-    
+
     - name: Build and publish
       shell: pwsh
       run: |
@@ -74,7 +79,7 @@ jobs:
           -r "${{ inputs.runtime }}" `
           --self-contained $selfContained `
           -p:PublishSingleFile=true `
-          -p:PublishReadyToRun=true `
+          -p:PublishReadyToRun=${{ inputs.ready-to-run }} `
           -p:IncludeNativeLibrariesForSelfExtract=$selfContained `
           -p:EnableCompressionInSingleFile=$selfContained `
           -p:DebugType=embedded `
