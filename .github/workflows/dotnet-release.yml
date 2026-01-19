@@ -89,33 +89,32 @@ jobs:
       id: version
       shell: pwsh
       run: |
-          $exeName = "${{ steps.project.outputs.name }}"
-          if ("${{ inputs.runtime }}" -like "win-*") { 
-            $exeName += ".exe" 
-          }
-          $exePath = "publish/$exeName"
-          
-          # For Windows executables, read version directly
-          if ("${{ inputs.runtime }}" -like "win-*") {
-            $version = (Get-Command $exePath).FileVersionInfo.FileVersion
-            $productVersion = (Get-Command $exePath).FileVersionInfo.ProductVersion
-          } else {
-            # For non-Windows, parse from DLL metadata or use dotnet command
-            $dllPath = Get-ChildItem "publish/*.dll" | Select-Object -First 1 -ExpandProperty FullName
-            if ($dllPath) {
-              $version = (Get-Command $dllPath).FileVersionInfo.FileVersion
-              $productVersion = (Get-Command $dllPath).FileVersionInfo.ProductVersion
-            } else {
-              Write-Error "Could not find DLL to extract version"
-              exit 1
-            }
-          }
-          
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-          echo "product-version=$productVersion" >> $env:GITHUB_OUTPUT
-          
-          Write-Host "File Version: $version"
-          Write-Host "Product Version: $productVersion"
+        # Find the intermediate DLL (before single-file packaging)
+        $proj = "${{ steps.project.outputs.path }}"
+        $projDir = Split-Path $proj -Parent
+        $runtime = "${{ inputs.runtime }}"
+        
+        # Look in bin/Release/net10.0/{runtime}/ for the DLL
+        $dllPath = Get-ChildItem "$projDir/bin/Release/*//$runtime/*.dll" -Recurse | 
+                   Where-Object { $_.Name -eq "${{ steps.project.outputs.name }}.dll" } | 
+                   Select-Object -First 1 -ExpandProperty FullName
+        
+        if (-not $dllPath) {
+          Write-Error "Could not find DLL at expected location"
+          Get-ChildItem "$projDir/bin" -Recurse -Filter "*.dll" | Select-Object FullName
+          exit 1
+        }
+        
+        Write-Host "Reading version from: $dllPath"
+        
+        $version = (Get-Command $dllPath).FileVersionInfo.FileVersion
+        $productVersion = (Get-Command $dllPath).FileVersionInfo.ProductVersion
+        
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "product-version=$productVersion" >> $env:GITHUB_OUTPUT
+        
+        Write-Host "File Version: $version"
+        Write-Host "Product Version: $productVersion"
     
     - name: Create release archive
       shell: pwsh
