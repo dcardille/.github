@@ -79,30 +79,43 @@ jobs:
           -r "${{ inputs.runtime }}" `
           --self-contained $selfContained `
           -p:PublishSingleFile=true `
-          -p:PublishReadyToRun=${{ inputs.ready-to-run }} `
+          -p:PublishReadyToRun="${{ inputs.ready-to-run }}" 
           -p:IncludeNativeLibrariesForSelfExtract=$selfContained `
           -p:EnableCompressionInSingleFile=$selfContained `
           -p:DebugType=embedded `
           -o publish/
-    
+          
     - name: Get version from MinVer
       id: version
       shell: pwsh
       run: |
-        $exeName = "${{ steps.project.outputs.name }}"
-        if ("${{ inputs.runtime }}" -like "win-*") { 
-          $exeName += ".exe" 
-        }
-        $exePath = "publish/$exeName"
-        
-        $version = (Get-Command $exePath).FileVersionInfo.FileVersion
-        $productVersion = (Get-Command $exePath).FileVersionInfo.ProductVersion
-        
-        echo "version=$version" >> $env:GITHUB_OUTPUT
-        echo "product-version=$productVersion" >> $env:GITHUB_OUTPUT
-        
-        Write-Host "File Version: $version"
-        Write-Host "Product Version: $productVersion"
+          $exeName = "${{ steps.project.outputs.name }}"
+          if ("${{ inputs.runtime }}" -like "win-*") { 
+            $exeName += ".exe" 
+          }
+          $exePath = "publish/$exeName"
+          
+          # For Windows executables, read version directly
+          if ("${{ inputs.runtime }}" -like "win-*") {
+            $version = (Get-Command $exePath).FileVersionInfo.FileVersion
+            $productVersion = (Get-Command $exePath).FileVersionInfo.ProductVersion
+          } else {
+            # For non-Windows, parse from DLL metadata or use dotnet command
+            $dllPath = Get-ChildItem "publish/*.dll" | Select-Object -First 1 -ExpandProperty FullName
+            if ($dllPath) {
+              $version = (Get-Command $dllPath).FileVersionInfo.FileVersion
+              $productVersion = (Get-Command $dllPath).FileVersionInfo.ProductVersion
+            } else {
+              Write-Error "Could not find DLL to extract version"
+              exit 1
+            }
+          }
+          
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "product-version=$productVersion" >> $env:GITHUB_OUTPUT
+          
+          Write-Host "File Version: $version"
+          Write-Host "Product Version: $productVersion"
     
     - name: Create release archive
       shell: pwsh
