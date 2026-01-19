@@ -79,7 +79,7 @@ jobs:
           -r "${{ inputs.runtime }}" `
           --self-contained $selfContained `
           -p:PublishSingleFile=true `
-          -p:PublishReadyToRun="${{ inputs.ready-to-run }}" 
+          -p:PublishReadyToRun="${{ inputs.ready-to-run }}" `
           -p:IncludeNativeLibrariesForSelfExtract=$selfContained `
           -p:EnableCompressionInSingleFile=$selfContained `
           -p:DebugType=embedded `
