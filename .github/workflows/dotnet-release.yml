@@ -72,20 +72,26 @@ jobs:
     - name: Build and publish
       shell: pwsh
       run: |
-        $selfContainedFlag = if ("${{ inputs.self-contained }}" -eq "true") { "--self-contained true" } else { "--no-self-contained" }
-        $readyToRunValue = if ("${{ inputs.ready-to-run }}" -eq "true") { "true" } else { "false" }
-        $nativeLibs = if ("${{ inputs.self-contained }}" -eq "true") { "true" } else { "false" }
-        $compression = if ("${{ inputs.self-contained }}" -eq "true") { "true" } else { "false" }
+        $args = @(
+          'publish'
+          '${{ steps.project.outputs.path }}'
+          '-c', 'Release'
+          '-r', '${{ inputs.runtime }}'
+          '-p:PublishSingleFile=true'
+          '-p:PublishReadyToRun=${{ inputs.ready-to-run }}'
+          '-p:DebugType=embedded'
+          '-o', 'publish/'
+        )
         
-        dotnet publish "${{ steps.project.outputs.path }}" `
-          -c Release `
-          -r "${{ inputs.runtime }}" `
-          $selfContainedFlag -p:PublishSingleFile=true `
-          -p:PublishReadyToRun=$readyToRunValue `
-          -p:IncludeNativeLibrariesForSelfExtract=$nativeLibs `
-          -p:EnableCompressionInSingleFile=$compression `
-          -p:DebugType=embedded `
-          -o publish/
+        if ("${{ inputs.self-contained }}" -eq "true") {
+          $args += '--self-contained'
+          $args += '-p:IncludeNativeLibrariesForSelfExtract=true'
+          $args += '-p:EnableCompressionInSingleFile=true'
+        } else {
+          $args += '--no-self-contained'
+        }
+        
+        & dotnet $args
 
           
     - name: Get version from MinVer
